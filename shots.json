@@ -1,5 +1,5 @@
 [
-  { "name": "1-start.jpg", "query": "?shot=start&seed=1" },
-  { "name": "2-play.jpg", "query": "?shot=play&seed=1" },
-  { "name": "3-end.jpg", "query": "?shot=end&seed=1" }
+	{ "name": "capture-start", "at": { "x": 9.1, "y": 16.5, "z": 19.6, "target": [0, 1, 5], "fov": 58 }, "saved": "1-start.jpg", "when": "noon" },
+	{ "name": "capture-play", "at": { "x": 11.1, "y": 16.5, "z": 16.6, "target": [2, 1, 5], "fov": 58 }, "saved": "2-play.jpg", "when": "day" },
+	{ "name": "capture-night", "at": { "x": 8.5, "y": 16.5, "z": 16.1, "target": [-1, 1, 2], "fov": 58 }, "saved": "3-end.jpg", "when": "night" }
 ]

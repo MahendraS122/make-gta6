@@ -1,19 +1,4 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
-<style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-</style>
-</head>
-<body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
-<p id="status" role="status" aria-live="polite"></p>
-<script type="module" src="./src/main.js"></script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Southline: City of Tides</title><style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:#f4f0e7;font-family:Arial,sans-serif}canvas{display:block;width:100%;height:100%;cursor:crosshair}#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 8px #000;z-index:3}#brand{position:absolute;left:28px;top:24px;font-size:12px;letter-spacing:3px;color:#b8d8bd}#mission{position:absolute;left:28px;top:54px;width:300px;padding:14px 16px;background:#111b;border-left:3px solid #f2b64b}#mission strong{display:block;font-size:11px;letter-spacing:2px;color:#f2b64b;margin-bottom:6px}#mission span{font-size:14px}#health{position:absolute;left:28px;bottom:30px;width:220px}#health label{font-size:10px;letter-spacing:2px}#bar{height:8px;background:#282e2b;margin-top:8px;border:1px solid #829187}#fill{height:100%;width:100%;background:linear-gradient(90deg,#6fda87,#d4e895)}#hint{position:absolute;right:28px;bottom:30px;text-align:right;font-size:12px;color:#e0dfd4;line-height:1.8}#stats{position:absolute;right:28px;top:26px;text-align:right;font-size:12px;letter-spacing:1px}#wanted{color:#ffd05b;font-size:19px;letter-spacing:4px}#map{position:absolute;right:25px;bottom:96px;width:142px;height:142px;border:1px solid #ffffff70;border-radius:50%;background:#152524dd;box-shadow:0 4px 20px #0008}#toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);font-size:13px;letter-spacing:2px;background:#101919d9;padding:10px 18px;opacity:0;transition:opacity .3s}#gameover{display:none;position:fixed;inset:0;background:#090d0ddd;place-items:center;text-align:center}#gameover h1{font-size:56px;letter-spacing:8px;margin:0 0 10px}#gameover p{color:#abb7ad;letter-spacing:2px}#restart{pointer-events:auto;background:#e3b154;color:#1a1710;border:0;padding:13px 26px;font-weight:bold;letter-spacing:2px;cursor:pointer;margin-top:18px}
+</style></head><body><div id="hud"><div id="brand">SOUTHLINE <span style="color:#79877d">/ CITY OF TIDES</span></div><div id="mission"><strong>LIVE CONTRACT · 01</strong><span id="objective">Reach the yellow beacon. Find a car to move fast.</span></div><div id="stats"><div id="clock">12:00 · NOON</div><div id="wanted">☆☆☆☆☆</div><div id="cash">$ 2,450</div></div><div id="health"><label>VITALS</label><div id="bar"><div id="fill"></div></div></div><canvas id="map" width="284" height="284"></canvas><div id="hint">CLICK GROUND · WALK / RUN<br>CLICK CAR · ENTER / EXIT · DRIVE<br>RIGHT CLICK · ACTION / INTERACT</div><div id="toast"></div></div><div id="gameover"><div><h1>OUT OF TIME</h1><p>THE CITY KEEPS MOVING.</p><button id="restart">RESTART RUN</button></div></div><script type="module" src="./src/main.js"></script></body></html>

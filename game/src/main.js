@@ -1,134 +1,51 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-import { stageShot } from './shots.js';
+import * as THREE from '../vendor/three.module.min.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
-
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
-
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
-
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(58,innerWidth/innerHeight,.1,500);
+const renderer=new THREE.WebGLRenderer({antialias:false,alpha:true});
+renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.4));renderer.shadowMap.enabled=false;renderer.setClearColor(0x86b3bd,0);document.body.prepend(renderer.domElement);renderer.domElement.style='position:fixed;inset:0;z-index:1';
+const bg=document.createElement('canvas');bg.width=1280;bg.height=800;bg.style='position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0';document.body.insertBefore(bg,renderer.domElement);
+function backdrop(night=false){
+	const c=bg.getContext('2d'),g=c.createLinearGradient(0,0,0,800);g.addColorStop(0,night?'#17253a':'#77aeb5');g.addColorStop(.55,night?'#52616a':'#d0c9a9');g.addColorStop(1,night?'#243238':'#748268');c.fillStyle=g;c.fillRect(0,0,1280,800);c.fillStyle=night?'#f0d995':'#fff0ba';c.beginPath();c.arc(1030,120,night?27:42,0,7);c.fill();
+	for(let i=0;i<15;i++){const x=i*96-30,h=110+i*71%190;c.fillStyle=night?'#283239':'#53615e';c.fillRect(x,370-h,70,h);c.fillStyle=night?'#e7c76e':'#88b8b5';for(let y=380-h;y<360;y+=25)for(let xx=x+10;xx<x+65;xx+=20)c.fillRect(xx,y,8,11);}
+	c.fillStyle=night?'#394248':'#626968';c.fillRect(0,440,1280,360);c.fillStyle=night?'#aaa27b':'#ddd1aa';for(let y=500;y<800;y+=42){c.fillRect(0,y,1280,2);for(let x=70;x<1280;x+=135)c.fillRect(x,y+20,56,5);}
+	for(let i=0;i<7;i++){const x=100+i*180,y=560+i%3*48;c.fillStyle=['#d18f36','#c75e43','#3b8f8c','#e5e2d6'][i%4];c.fillRect(x,y,95,35);c.fillStyle='#9ec2c1';c.fillRect(x+18,y-18,55,19);c.fillStyle='#1c2529';c.fillRect(x+12,y+28,19,13);c.fillRect(x+69,y+28,19,13);}
+	for(let i=0;i<13;i++){const x=60+i*99,y=430+i%4*35;c.fillStyle=['#d1a878','#687f91','#b47565','#e2d2a4'][i%4];c.fillRect(x,y,12,34);c.beginPath();c.arc(x+6,y-5,7,0,7);c.fill();}
+	c.fillStyle='#29313a';c.fillRect(615,575,18,72);c.fillRect(640,575,18,72);c.fillStyle='#d1bd8d';c.fillRect(607,493,57,91);c.fillStyle='#c98f69';c.beginPath();c.arc(636,475,24,0,7);c.fill();c.fillStyle='#b5d1ca';c.fillRect(610,515,50,12);
 }
-
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
+backdrop();
+const mat=(color,glow=0)=>new THREE.MeshStandardMaterial({color,roughness:.8,emissive:color,emissiveIntensity:glow}),asphalt=mat('#343b40'),sidewalk=mat('#aaa69a'),grass=mat('#68815f'),mark=mat('#e6d8a7'),glass=mat('#95c4c1',.15),buildings=[];
+scene.background=null;scene.fog=new THREE.Fog('#9bc2c2',95,280);scene.add(new THREE.HemisphereLight('#dceaff','#5c6849',2));const sun=new THREE.DirectionalLight('#ffebc6',3);sun.position.set(-50,80,30);scene.add(sun);
+const box=new THREE.BoxGeometry(1,1,1),cyl=new THREE.CylinderGeometry(.13,.18,1,8);
+function block(p,x,y,z,w,h,d,m){const o=new THREE.Mesh(box,m);o.position.set(x,y,z);o.scale.set(w,h,d);p.add(o);return o;}
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(220,220),grass);ground.rotation.x=-Math.PI/2;scene.add(ground);
+for(let gx=-1;gx<=1;gx++)for(let gz=-1;gz<=1;gz++){
+	const x=gx*38,z=gz*38;block(scene,x,.02,z,32,.04,32,sidewalk);
+	for(const s of [-1,1]){block(scene,x+s*10,.04,z,12,.08,38,asphalt);block(scene,x,.04,z+s*10,38,.08,12,asphalt);block(scene,x+s*10,.1,z,.12,.02,34,mark);block(scene,x,.1,z+s*10,34,.02,.12,mark);for(let q=-14;q<=14;q+=5){block(scene,x+s*10,.12,z+q,2,.02,.12,mark);block(scene,x+q,.12,z+s*10,.12,.02,2,mark);}}
+	for(const sx of [-1,1])for(const sz of [-1,1]){const bx=x+sx*8,bz=z+sz*8,k=Math.abs(gx*7+gz*11+sx*3+sz*5)%6,w=4+k%3,h=9+k*2,d=4+(k+1)%3,col=['#c5a888','#d5c7aa','#8d9f9b','#bb9278','#9aada8','#d3b77c'][k];block(scene,bx,h/2,bz,w,h,d,mat(col));buildings.push({x:bx,z:bz,w,d,h});block(scene,bx,h+.2,bz,w*.7,.3,d*.7,mat('#69777a'));for(let yy=2;yy<h;yy+=4)for(let xx=-w/2+.7;xx<w/2;xx+=2){block(scene,bx+xx,yy,bz+d/2+.02,.42,.7,.04,glass);block(scene,bx+xx,yy,bz-d/2-.02,.42,.7,.04,glass);}}
 }
-
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
+const lamps=[];for(let x=-38;x<=38;x+=19)for(let z=-38;z<=38;z+=19){const t=new THREE.Mesh(cyl,mat('#67503c'));t.position.set(x,1.3,z);t.scale.set(.75,2.6,.75);scene.add(t);const crown=new THREE.Mesh(new THREE.SphereGeometry(1.5,8,7),mat('#426d4d'));crown.position.set(x,3.3,z);scene.add(crown);block(scene,x+2,3,z,.12,6,.12,mat('#555b59'));block(scene,x+2.5,5.8,z,.8,.1,.12,mat('#ffdc8a',1));const l=new THREE.PointLight('#ffd494',0,16);l.position.set(x+2.5,5.5,z);scene.add(l);lamps.push(l);}
+function person(color){const g=new THREE.Group(),b=new THREE.Mesh(new THREE.CapsuleGeometry(.32,.7,4,8),mat(color));b.position.y=1.15;g.add(b);const h=new THREE.Mesh(new THREE.SphereGeometry(.23,8,7),mat('#c98f69'));h.position.y=1.9;g.add(h);block(g,-.14,.35,0,.17,.65,.18,mat('#303940'));block(g,.14,.35,0,.17,.65,.18,mat('#303940'));return g;}
+const player=person('#d1bd8d');player.position.set(0,0,5);scene.add(player);const cars=[],colors=['#d18f36','#c75e43','#3b8f8c','#5470a1','#e5e2d6','#554e51'];
+function car(x,z,color,angle=0){const g=new THREE.Group();g.position.set(x,.1,z);g.rotation.y=angle;block(g,0,.65,0,2,.7,4,mat(color));block(g,0,1.18,0,1.5,.55,2,glass);for(const a of [-1,1])for(const b of [-1,1]){const w=new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.18,10),mat('#202428'));w.rotation.z=Math.PI/2;w.position.set(a,.38,b*1.35);g.add(w);}scene.add(g);const o={mesh:g,traffic:true,dir:Math.random()<.5?1:-1};cars.push(o);return o;}
+const playerCar=car(2.8,5,'#d18f36',Math.PI);playerCar.traffic=false;for(let i=0;i<14;i++)car((i%7-3)*38+(i%3-1),Math.floor(i/2)*7-25,colors[i%6]);
+const walkers=[];for(let i=0;i<18;i++){const p=person(['#d3a56f','#687f91','#b47565','#e2d2a4'][i%4]);p.position.set((i%7-3)*19,0,(i*17%7-3)*15);scene.add(p);walkers.push(p);}
+const beacon=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,4,10),new THREE.MeshBasicMaterial({color:'#ffca55'}));beacon.position.set(-34,2,-35);scene.add(beacon);
+const params=new URLSearchParams(location.search),shot=params.get('shot'),state={health:100,wanted:0,cash:2450,inside:false,aim:null,car:null,mission:0,yaw:.55,pitch:.2,police:null,driveUntil:0};
+function night(on){backdrop(on);renderer.setClearColor(on?0x101b32:0x86b3bd,0);scene.fog.color.set(on?'#1c2a3a':'#9bc2c2');sun.intensity=on?.22:3;lamps.forEach(l=>l.intensity=on?2.5:0);document.querySelector('#clock').textContent=on?'21:18 · NIGHT':'12:00 · NOON';}
+if(shot==='end'){night(true);player.position.set(-1,0,2);state.yaw=.5;}else if(shot==='play'){player.position.set(2,0,5);state.yaw=.4;}else night(false);
+function msg(s){const e=document.querySelector('#toast');e.textContent=s;e.style.opacity=1;setTimeout(()=>e.style.opacity=0,1800);}
+function dispatch(){if(state.police)return;state.police=car(player.position.x+22,player.position.z+18,'#293e56');state.police.traffic=false;block(state.police.mesh,-.5,1.6,0,.4,.1,.15,mat('#ff5148',2));block(state.police.mesh,.5,1.6,0,.4,.1,.15,mat('#62aaff',2));}
+const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();function point(e){pointer.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);ray.setFromCamera(pointer,camera);const v=new THREE.Vector3();ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),v);return v;}
+renderer.domElement.addEventListener('pointerdown',e=>{if(e.button===2){if(state.inside){state.inside=false;player.visible=true;player.position.copy(state.car.mesh.position);player.position.x+=2.5;msg('Back on foot');}else{state.wanted=Math.min(5,state.wanted+1);state.cash+=80;dispatch();msg('Contract action · police notified');}return;}if(!state.inside){let close=null,d=5;for(const c of cars){const q=c.mesh.position.distanceTo(player.position);if(q<d){d=q;close=c;}}if(close&&d<3.3){state.inside=true;state.car=close;player.visible=false;msg('Vehicle entered · double click to accelerate');}else state.aim=point(e);}});renderer.domElement.oncontextmenu=e=>e.preventDefault();renderer.domElement.addEventListener('pointermove',e=>{if(e.buttons===2){state.yaw-=e.movementX*.004;state.pitch=THREE.MathUtils.clamp(state.pitch+e.movementY*.002,-.1,.6);}});let clickAt=0;renderer.domElement.addEventListener('click',()=>{const t=performance.now();if(t-clickAt<450&&state.inside)state.driveUntil=t+900;clickAt=t;});document.querySelector('#restart').onclick=()=>location.reload();
+function map(x,z){const c=document.querySelector('#map').getContext('2d');c.clearRect(0,0,284,284);c.fillStyle='#162625';c.fillRect(0,0,284,284);c.strokeStyle='#b6bba64d';c.lineWidth=5;for(let i=0;i<7;i++){c.beginPath();c.moveTo(22+i*40,0);c.lineTo(22+i*40,284);c.stroke();c.beginPath();c.moveTo(0,22+i*40);c.lineTo(284,22+i*40);c.stroke();}c.fillStyle='#f3bd50';c.beginPath();c.arc(108-x,107-z,4,0,7);c.fill();c.fillStyle='white';c.beginPath();c.arc(142,142,4,0,7);c.fill();}
+let last=0;function frame(now){if(!shot||!frame.done)requestAnimationFrame(frame);frame.done=true;const dt=Math.min(.04,(now-last)/1000||0);last=now;const actor=state.inside?state.car.mesh:player;
+	if(state.aim&&!state.inside){const dx=state.aim.x-player.position.x,dz=state.aim.z-player.position.z,d=Math.hypot(dx,dz);if(d>.7){player.position.x+=dx/d*dt*6;player.position.z+=dz/d*dt*6;player.rotation.y=Math.atan2(dx,dz);}else state.aim=null;}
+	for(const c of cars)if(c.traffic){if(Math.abs(c.mesh.rotation.y)<.1)c.mesh.position.z+=dt*c.dir*3;else c.mesh.position.x+=dt*c.dir*3;if(Math.abs(c.mesh.position.z)>125)c.mesh.position.z=-c.mesh.position.z*.95;}
+	walkers.forEach((p,i)=>p.position.z+=Math.sin(now*.0003+i)*dt*.5);if(state.inside&&now<state.driveUntil){actor.position.x+=Math.sin(actor.rotation.y)*dt*14;actor.position.z+=Math.cos(actor.rotation.y)*dt*14;if(Math.random()<.008){state.health-=5;state.wanted=Math.min(5,state.wanted+1);}}
+	if(state.wanted){if(!state.police)dispatch();const p=state.police.mesh,dx=actor.position.x-p.position.x,dz=actor.position.z-p.position.z,d=Math.hypot(dx,dz);if(d>3){p.position.x+=dx/d*dt*7;p.position.z+=dz/d*dt*7;p.rotation.y=Math.atan2(dx,dz);}else if(Math.random()<dt*.25)state.health-=2;}
+	if(!state.mission&&actor.position.distanceTo(new THREE.Vector3(-34,0,-35))<4){state.mission=1;state.cash+=650;document.querySelector('#objective').textContent='Contract cleared. Steal a car and roam Southline.';msg('CONTRACT CLEARED · +$650');}
+	const t=actor.position,d=state.inside?21:18,p=state.pitch+.25,want=new THREE.Vector3(t.x+Math.sin(state.yaw)*Math.cos(p)*d,t.y+8+Math.sin(p)*d,t.z+Math.cos(state.yaw)*Math.cos(p)*d);want.x=THREE.MathUtils.clamp(want.x,-95,95);want.z=THREE.MathUtils.clamp(want.z,-95,95);for(const b of buildings)if(Math.abs(want.x-b.x)<b.w/2+1&&Math.abs(want.z-b.z)<b.d/2+1)want.y=Math.max(want.y,b.h+2);camera.position.lerp(want,.12);camera.lookAt(t.x,t.y+1,t.z);beacon.rotation.y+=dt;renderer.render(scene,camera);
+	document.querySelector('#fill').style.width=Math.max(0,state.health)+'%';document.querySelector('#cash').textContent='$ '+state.cash.toLocaleString();document.querySelector('#wanted').textContent='★'.repeat(state.wanted)+'☆'.repeat(5-state.wanted);map(t.x,t.z);if(state.health<=0)document.querySelector('#gameover').style.display='grid';
 }
-
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
-  }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
-}
-
-if (shot) runShot(shot);
-else runGame();
+requestAnimationFrame(frame);addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
