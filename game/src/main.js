@@ -1,134 +1,165 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-import { stageShot } from './shots.js';
+import { THREE, scene, camera, renderer, vec, clamp, person, slide, blocked, obstacles, sky, followLight } from './stage.js';
+import { scenery } from './city.js';
+import { cars, updateActors, damageCar } from './actors.js';
+import { jobs, updateBeacon } from './contracts.js';
+import { notify, updateHUD } from './hud.js';
+import { crime, action, updateLaw, lawStatus } from './law.js';
+import { setupGarage, loadGame, changeTime, saveGame, garageStatus } from './garage.js';
+import { route } from './navigation.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
-
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
-
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
-
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
+export const player = person();
+player.position.set(1.4, 0, 8);
+player.rotation.y = Math.PI;
+scene.add(player);
+export const state = { player, vehicle: null, health: 100, money: 250, wanted: 0, contract: 0, time: 'noon', death: '', weapon: 'UNARMED', crime(amount) { crime(this, amount); } };
+addEventListener('southline-action', () => action(state, notify));
+document.getElementById('restart').onclick = () => { localStorage.removeItem('southline-save'); location.assign(location.pathname); };
+state.finishContract = () => {
+	if (state.contract >= jobs.length) return;
+	state.money += jobs[state.contract].reward;
+	state.contract++;
+	notify(`Contract complete. Payment received. ${state.contract === 5 ? 'Southline is yours.' : 'New contract unlocked.'}`);
+	if (state.contract === 3) state.crime(2);
+};
+loadGame(state, cars);
+setupGarage(state);
+export function enter(record) {
+	if (!record.alive) return;
+	state.vehicle = record; record.driver.visible = false; player.visible = false; goal = null; path = []; pendingCar = null;
+	if (record.kind === 'traffic' || record.kind === 'police') state.crime(1);
+}
+export function exit() {
+	if (!state.vehicle) return;
+	const record = state.vehicle;
+	const offsets = [vec(2.7, 0, 0), vec(-2.7, 0, 0), vec(0, 0, 3.2), vec(0, 0, -3.2)];
+	const spot = offsets.map(offset => offset.applyAxisAngle(vec(0, 1, 0), record.root.rotation.y).add(record.root.position)).find(point => !blocked(point.x, point.z, .45));
+	if (!spot) return notify('Exit blocked. Move your vehicle into the street.');
+	player.position.copy(spot);
+	record.speed = 0; state.vehicle = null; player.visible = true;
+}
+const canvas = renderer.domElement;
+const pointer = new THREE.Vector2();
+const ray = new THREE.Raycaster();
+const ground = new THREE.Plane(vec(0, 1, 0), 0);
+const keys = new Set();
+let goal = null, gesture = null, yaw = .2, pitch = .36, zoom = 23, path = [], pendingCar = null;
+const focus = player.position.clone().add(vec(0, 1.25, 0));
+const hits = vec();
+const shot = new URLSearchParams(location.search).get('shot');
+let capture = false;
+if (['start', 'play', 'end'].includes(shot)) {
+	player.position.set(1.4, 0, 8);
+	state.health = 100; state.wanted = 0; state.contract = 0;
+	changeTime({ start: 'noon', play: 'day', end: 'night' }[shot], state);
+	focus.copy(player.position).add(vec(0, 1.25, 0));
+	capture = true;
 }
 
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
+addEventListener('keydown', event => {
+	if (event.target instanceof HTMLButtonElement && ['Enter', ' '].includes(event.key)) return;
+	keys.add(event.key.toLowerCase());
+});
+addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
+addEventListener('blur', () => { keys.clear(); gesture = null; });
+canvas.addEventListener('contextmenu', event => event.preventDefault());
+canvas.addEventListener('wheel', event => { event.preventDefault(); zoom = clamp(zoom + Math.sign(event.deltaY) * 1.7, 7, 34); }, { passive: false });
+canvas.addEventListener('pointerdown', event => {
+	canvas.setPointerCapture(event.pointerId);
+	gesture = { x: event.clientX, y: event.clientY, distance: 0 };
+});
+canvas.addEventListener('pointermove', event => {
+	if (!gesture) return;
+	const deltaX = event.clientX - gesture.x, deltaY = event.clientY - gesture.y;
+	gesture.distance += Math.hypot(deltaX, deltaY);
+	gesture.x = event.clientX; gesture.y = event.clientY;
+	if (gesture.distance < 5) return;
+	yaw -= deltaX * .008;
+	pitch = clamp(pitch + deltaY * .006, .12, 1.05);
+});
+canvas.addEventListener('pointercancel', () => { gesture = null; });
+canvas.addEventListener('pointerup', event => {
+	const click = gesture && gesture.distance < 5;
+	gesture = null;
+	if (!click) return;
+	const rect = canvas.getBoundingClientRect();
+	pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2);
+	ray.setFromCamera(pointer, camera);
+	if (event.button === 2) { if (state.vehicle) exit(); else window.dispatchEvent(new Event('southline-action')); return; }
+	const hit = ray.intersectObjects(cars.map(record => record.root), true)[0];
+	if (hit && !state.vehicle) { const record = hit.object.userData.car; if (record.root.position.distanceTo(player.position) < 6) enter(record); else { pendingCar = record; path = route(player.position, record.root.position); goal = path.shift() || null; } return; }
+	const point = ray.ray.intersectPlane(ground, vec());
+	if (point) { pendingCar = null; path = route(player.position, point.clamp(vec(-102, 0, -102), vec(98, 0, 104)), state.vehicle ? 1.25 : .45); goal = path.shift() || null; }
+});
+
+function updatePlayer(dt, time) {
+	if (pendingCar && pendingCar.root.position.distanceTo(player.position) < 4) { enter(pendingCar); pendingCar = null; path = []; }
+	const direction = vec(Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft')), 0, Number(keys.has('s') || keys.has('arrowdown')) - Number(keys.has('w') || keys.has('arrowup')));
+	if (state.vehicle) {
+		const record = state.vehicle;
+		if (direction.lengthSq()) {
+			goal = null; path = [];
+			record.speed = clamp(record.speed - direction.z * dt * 12, -9, 24);
+			record.root.rotation.y -= direction.x * dt * 1.65 * (record.speed < 0 ? -1 : 1);
+		} else if (goal) {
+			const delta = goal.clone().sub(record.root.position);
+			const angle = Math.atan2(delta.x, delta.z);
+			const turn = Math.atan2(Math.sin(angle - record.root.rotation.y), Math.cos(angle - record.root.rotation.y));
+			record.root.rotation.y += clamp(turn, -dt * 1.7, dt * 1.7);
+			record.speed = Math.min(20, delta.length() * 1.1) * Math.max(.2, 1 - Math.abs(turn) / Math.PI);
+			if (delta.length() < 2.6) { goal = path.shift() || null; if (!goal) record.speed = 0; }
+		} else record.speed *= Math.exp(-dt * 2);
+		player.position.copy(record.root.position);
+		return;
+	}
+	if (direction.lengthSq()) {
+		goal = null; path = [];
+		direction.applyAxisAngle(vec(0, 1, 0), yaw);
+	} else if (goal) {
+		direction.subVectors(goal, player.position);
+		if (direction.length() < .65) { goal = path.shift() || null; direction.set(0, 0, 0); }
+	}
+	const moving = direction.lengthSq() > 0;
+	if (moving) {
+		player.rotation.y = Math.atan2(direction.x, direction.z);
+		slide(player.position, direction.normalize().multiplyScalar(dt * 7.2), .42);
+	}
+	player.userData.pose(time, moving);
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
+function updateCamera(dt) {
+	focus.lerp(player.position.clone().add(vec(0, 1.25, 0)), 1 - Math.exp(-12 * dt));
+	const offset = vec(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+	const sight = new THREE.Ray(focus, offset);
+	let distance = zoom;
+	for (const bound of obstacles) {
+		if (sight.intersectBox(bound, hits)) distance = Math.min(distance, Math.max(.3, hits.distanceTo(focus) - .75));
+	}
+	camera.position.copy(focus).addScaledVector(offset, distance);
+	camera.lookAt(focus);
+	if (capture) {
+		camera.position.set(7.5, 7.4, 30);
+		camera.lookAt(vec(1.4, 1.25, 8));
+	}
+	sky.position.copy(camera.position);
 }
 
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
-  }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
+let last = performance.now(), simulated = 0;
+export function step(dt) {
+	simulated += dt;
+	if (state.health <= 0) { updateHUD(state, dt); return; }
+	updatePlayer(dt, simulated);
+	updateActors(dt, simulated, state);
+	if (state.vehicle) player.position.copy(state.vehicle.root.position);
+	updateLaw(dt, simulated, state, notify);
+	updateBeacon(state, simulated);
+	updateHUD(state, dt);
+	updateCamera(dt);
+	followLight(player.position);
+	scenery(player.position);
 }
-
-if (shot) runShot(shot);
-else runGame();
+window.southline = { state, cars, enter, exit, damageCar: (record, amount) => damageCar(record, amount, state), step, renderer, scene, camera, lawStatus, changeTime: time => changeTime(time, state), save: () => saveGame(state), garageStatus, route, ready: true };
+renderer.setAnimationLoop(now => {
+	step(clamp((now - last) / 1000, 0, .05));
+	last = now;
+	renderer.render(scene, camera);
+});

@@ -1,0 +1,6 @@
+{
+	"name": "southline-city-of-tides",
+	"private": true,
+	"type": "module",
+	"scripts": { "start": "node serve.ts", "build": "node main.ts" }
+}

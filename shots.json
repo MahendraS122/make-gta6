@@ -1,5 +1,5 @@
 [
-  { "name": "1-start.jpg", "query": "?shot=start&seed=1" },
-  { "name": "2-play.jpg", "query": "?shot=play&seed=1" },
-  { "name": "3-end.jpg", "query": "?shot=end&seed=1" }
+	{"name":"start","at":{"x":7.5,"y":7.4,"z":30,"target":{"x":1.4,"y":1.25,"z":8},"fov":59},"saved":"screenshots/1-start.jpg","when":"noon"},
+	{"name":"play","at":{"x":7.5,"y":7.4,"z":30,"target":{"x":1.4,"y":1.25,"z":8},"fov":59},"saved":"screenshots/2-play.jpg","when":"day"},
+	{"name":"end","at":{"x":7.5,"y":7.4,"z":30,"target":{"x":1.4,"y":1.25,"z":8},"fov":59},"saved":"screenshots/3-end.jpg","when":"night"}
 ]
